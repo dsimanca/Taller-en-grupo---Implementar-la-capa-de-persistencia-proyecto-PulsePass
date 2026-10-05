@@ -13,5 +13,6 @@ public interface VenueRepository extends JpaRepository<Venue, Long> {
 
     @Query("SELECT e FROM Event e WHERE e.venue.code = :venueCode")
     List<Event> findEventsByCode(@Param("venueCode") String venueCode);
+    List<Venue> findByActiveTrueOrderByNameAsc();
 }
 
