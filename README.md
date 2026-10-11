@@ -2,6 +2,23 @@
 
 PulsePass es un caso academico de persistencia para una plataforma de eventos, artistas, usuarios, perfiles y tickets.
 
+## API HTTP
+
+Todos los endpoints usan el prefijo `/api`, JSON y respuestas de error uniformes. Los recursos principales son:
+
+- Venues: `GET /venues/{code}` y `GET /venues/active`.
+- Eventos: `POST /events`, `GET /events/{eventCode}`, `GET /events/published`,
+  `PATCH /events/{eventCode}/publish`, `POST /events/{eventCode}/artists/{artistId}` y
+  `GET /events/by-artist?stageName=...`.
+- Artistas: `GET /artists/{id}`, `GET /artists/by-stage-name?stageName=...` y `GET /artists/active`.
+- Usuarios: `POST /users`, `GET /users/by-email?email=...` y `GET /users/by-username?username=...`.
+- Tickets: `POST /tickets`, `GET /tickets/{ticketCode}`, `GET /tickets/by-user?email=...`,
+  `GET /events/{eventCode}/tickets/paid`, `PATCH /tickets/{ticketCode}/cancel` y
+  `PATCH /tickets/{ticketCode}/use`.
+
+Las creaciones retornan `201`; las consultas y transiciones exitosas, `200`. Los errores usan
+`ErrorResponse` y retornan `400`, `404`, `409` o `500` según corresponda.
+
 ## Tecnologias
 
 - Java 21
@@ -81,5 +98,4 @@ spring:
   flyway:
     enabled: true
 ```
-##gracias
 
