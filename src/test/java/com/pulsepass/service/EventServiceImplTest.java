@@ -20,6 +20,7 @@ import com.pulsepass.mapper.EventMapper;
 import com.pulsepass.repository.ArtistRepository;
 import com.pulsepass.repository.EventRepository;
 import com.pulsepass.repository.VenueRepository;
+import com.pulsepass.security.AuthorizationService;
 import com.pulsepass.service.Impl.EventServiceImpl;
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -40,12 +41,13 @@ class EventServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new EventServiceImpl(eventRepository, venueRepository, artistRepository, eventMapper);
+        service = new EventServiceImpl(eventRepository, venueRepository, artistRepository, eventMapper,
+                new AuthorizationService());
     }
 
     @Test
     void findsAnExistingEvent() {
-        Event event = event("EV-1", EventStatus.DRAFT);
+        Event event = event("EV-1", EventStatus.PUBLISHED);
         when(eventRepository.findByEventCode("EV-1")).thenReturn(Optional.of(event));
 
         service.findByCode("EV-1");
@@ -59,6 +61,27 @@ class EventServiceImplTest {
 
         assertThatThrownBy(() -> service.findByCode("UNKNOWN"))
                 .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void hidesUnpublishedEventsFromAnonymousCallers() {
+        Event draft = event("EV-1", EventStatus.DRAFT);
+        when(eventRepository.findByEventCode("EV-1")).thenReturn(Optional.of(draft));
+
+        assertThatThrownBy(() -> service.findByCode("EV-1")).isInstanceOf(ResourceNotFoundException.class);
+        verify(eventMapper, never()).toResponse(draft);
+    }
+
+    @Test
+    void filtersUnpublishedEventsFromPublicArtistSearches() {
+        Event draft = event("EV-DRAFT", EventStatus.DRAFT);
+        Event published = event("EV-PUBLISHED", EventStatus.PUBLISHED);
+        when(eventRepository.findByArtistStageName("Solar Beat")).thenReturn(java.util.List.of(draft, published));
+
+        service.findByArtist("Solar Beat");
+
+        verify(eventMapper, never()).toSummary(draft);
+        verify(eventMapper).toSummary(published);
     }
 
     @Test

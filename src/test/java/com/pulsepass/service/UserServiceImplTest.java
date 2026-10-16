@@ -8,11 +8,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pulsepass.domain.model.User;
+import com.pulsepass.domain.model.UserCredential;
 import com.pulsepass.dto.request.RegisterUserRequest;
 import com.pulsepass.exception.BusinessRuleException;
 import com.pulsepass.exception.DuplicateResourceException;
 import com.pulsepass.mapper.UserMapper;
 import com.pulsepass.repository.UserRepository;
+import com.pulsepass.repository.UserCredentialRepository;
+import com.pulsepass.security.AuthorizationService;
 import com.pulsepass.service.Impl.UserServiceImpl;
 import java.time.LocalDate;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,22 +24,28 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceImplTest {
     @Mock private UserRepository userRepository;
+    @Mock private UserCredentialRepository credentialRepository;
     @Mock private UserMapper userMapper;
+    @Mock private PasswordEncoder passwordEncoder;
+    @Mock private AuthorizationService authorizationService;
     private UserService service;
 
     @BeforeEach
     void setUp() {
-        service = new UserServiceImpl(userRepository, userMapper);
+        service = new UserServiceImpl(userRepository, credentialRepository, userMapper,
+                passwordEncoder, authorizationService);
     }
 
     @Test
     void registersAnActiveUserWithProfile() {
         RegisterUserRequest request = request(LocalDate.now().minusYears(20));
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(passwordEncoder.encode(request.password())).thenReturn("$2a$12$encoded");
 
         service.register(request);
 
@@ -44,6 +53,10 @@ class UserServiceImplTest {
         verify(userRepository).save(saved.capture());
         assertThat(saved.getValue().getActive()).isTrue();
         assertThat(saved.getValue().getProfile().getUser()).isSameAs(saved.getValue());
+        ArgumentCaptor<UserCredential> credential = ArgumentCaptor.forClass(UserCredential.class);
+        verify(credentialRepository).save(credential.capture());
+        assertThat(credential.getValue().getPasswordHash()).isEqualTo("$2a$12$encoded");
+        assertThat(credential.getValue().getRoles()).containsExactly(com.pulsepass.domain.enums.Role.USER);
     }
 
     @Test
@@ -72,6 +85,7 @@ class UserServiceImplTest {
     }
 
     private RegisterUserRequest request(LocalDate birthDate) {
-        return new RegisterUserRequest("andrea", "andrea@email.com", "Andrea", "Perez", "300", "Bogota", birthDate);
+        return new RegisterUserRequest("andrea", "andrea@email.com", "Andrea", "Perez", "300", "Bogota",
+                birthDate, "ValidPassword-2026");
     }
 }

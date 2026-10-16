@@ -19,12 +19,23 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.security.test.context.support.WithAnonymousUser;
+import com.pulsepass.security.CustomUserDetailsService;
+import com.pulsepass.security.JwtService;
+import com.pulsepass.security.RestAccessDeniedHandler;
+import com.pulsepass.security.RestAuthenticationEntryPoint;
+import com.pulsepass.security.SecurityConfig;
 
 @WebMvcTest(VenueController.class)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, SecurityConfig.class, RestAuthenticationEntryPoint.class,
+        RestAccessDeniedHandler.class})
+@WithMockUser
 class VenueControllerTest {
     @Autowired private MockMvc mockMvc;
     @MockitoBean private VenueService venueService;
+    @MockitoBean private JwtService jwtService;
+    @MockitoBean private CustomUserDetailsService customUserDetailsService;
 
     @Test void findsVenue() throws Exception {
         when(venueService.findByCode("VEN-SMR-01")).thenReturn(venue());
@@ -36,7 +47,7 @@ class VenueControllerTest {
         mockMvc.perform(get("/api/venues/MISSING")).andExpect(status().isNotFound()).andExpect(jsonPath("$.status").value(404));
         verify(venueService).findByCode("MISSING");
     }
-    @Test void listsActiveVenues() throws Exception {
+    @Test @WithAnonymousUser void listsActiveVenues() throws Exception {
         when(venueService.findActiveVenues()).thenReturn(List.of(venue()));
         mockMvc.perform(get("/api/venues/active")).andExpect(status().isOk()).andExpect(jsonPath("$[0].active").value(true));
         verify(venueService).findActiveVenues();

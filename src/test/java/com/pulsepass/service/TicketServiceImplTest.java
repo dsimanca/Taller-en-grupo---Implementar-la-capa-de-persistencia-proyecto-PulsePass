@@ -24,16 +24,24 @@ import com.pulsepass.mapper.TicketMapper;
 import com.pulsepass.repository.EventRepository;
 import com.pulsepass.repository.TicketRepository;
 import com.pulsepass.repository.UserRepository;
+import com.pulsepass.security.AuthorizationService;
+import com.pulsepass.security.SecurityPrincipal;
 import com.pulsepass.service.Impl.TicketServiceImpl;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
 class TicketServiceImplTest {
@@ -45,7 +53,22 @@ class TicketServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new TicketServiceImpl(ticketRepository, userRepository, eventRepository, ticketMapper);
+        authenticateAs("USER");
+        service = new TicketServiceImpl(ticketRepository, userRepository, eventRepository, ticketMapper,
+                new AuthorizationService());
+    }
+
+    private void authenticateAs(String... roles) {
+        var authorities = List.of(roles).stream()
+                .map(role -> new SimpleGrantedAuthority("ROLE_" + role)).toList();
+        var principal = new SecurityPrincipal(1L, "andrea", "andrea@email.com", "hash", true, authorities);
+        SecurityContextHolder.getContext().setAuthentication(
+                UsernamePasswordAuthenticationToken.authenticated(principal, null, authorities));
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -68,6 +91,14 @@ class TicketServiceImplTest {
         when(userRepository.findByEmailIgnoreCase("andrea@email.com")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.purchase(request())).isInstanceOf(ResourceNotFoundException.class);
+        verify(ticketRepository, never()).save(any(Ticket.class));
+    }
+
+    @Test
+    void refusesToPurchaseForAnotherUser() {
+        PurchaseTicketRequest request = new PurchaseTicketRequest("carlos@email.com", "EV-1", TicketType.GENERAL);
+
+        assertThatThrownBy(() -> service.purchase(request)).isInstanceOf(AccessDeniedException.class);
         verify(ticketRepository, never()).save(any(Ticket.class));
     }
 
@@ -154,7 +185,19 @@ class TicketServiceImplTest {
     }
 
     @Test
+    void refusesToCancelAnotherUsersTicket() {
+        Ticket ticket = ticket(TicketStatus.PAID);
+        User owner = ticket.getUser();
+        owner.setId(2L);
+        when(ticketRepository.findByTicketCode("TCK-1")).thenReturn(Optional.of(ticket));
+
+        assertThatThrownBy(() -> service.cancel("TCK-1")).isInstanceOf(AccessDeniedException.class);
+        verify(ticketRepository, never()).save(eq(ticket));
+    }
+
+    @Test
     void marksAPaidTicketAsUsed() {
+        authenticateAs("STAFF");
         Ticket ticket = ticket(TicketStatus.PAID);
         when(ticketRepository.findByTicketCode("TCK-1")).thenReturn(Optional.of(ticket));
         when(ticketRepository.save(ticket)).thenReturn(ticket);
@@ -166,6 +209,7 @@ class TicketServiceImplTest {
 
     @Test
     void rejectsUsingACancelledTicket() {
+        authenticateAs("STAFF");
         Ticket ticket = ticket(TicketStatus.CANCELLED);
         when(ticketRepository.findByTicketCode("TCK-1")).thenReturn(Optional.of(ticket));
 
@@ -186,6 +230,7 @@ class TicketServiceImplTest {
     private User user(boolean active, LocalDate birthDate) {
         User user = new User();
         user.setEmail("andrea@email.com");
+        user.setId(1L);
         user.setActive(active);
         UserProfile profile = new UserProfile();
         profile.setBirthDate(birthDate);
@@ -209,6 +254,7 @@ class TicketServiceImplTest {
         Ticket ticket = new Ticket();
         ticket.setTicketCode("TCK-1");
         ticket.setStatus(status);
+        ticket.setUser(user(true, LocalDate.now().minusYears(25)));
         ticket.setEvent(event(EventStatus.PUBLISHED, 0, 3));
         return ticket;
     }

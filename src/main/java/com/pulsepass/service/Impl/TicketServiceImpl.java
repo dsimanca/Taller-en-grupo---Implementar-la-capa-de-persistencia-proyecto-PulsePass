@@ -14,6 +14,8 @@ import com.pulsepass.mapper.TicketMapper;
 import com.pulsepass.repository.EventRepository;
 import com.pulsepass.repository.TicketRepository;
 import com.pulsepass.repository.UserRepository;
+import com.pulsepass.security.AuthorizationService;
+import com.pulsepass.security.SecurityPrincipal;
 import com.pulsepass.service.TicketService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,23 +35,32 @@ public class TicketServiceImpl implements TicketService {
     private final UserRepository userRepository;
     private final EventRepository eventRepository;
     private final TicketMapper ticketMapper;
+    private final AuthorizationService authorizationService;
 
     public TicketServiceImpl(TicketRepository ticketRepository,
                              UserRepository userRepository,
                              EventRepository eventRepository,
-                             TicketMapper ticketMapper) {
+                             TicketMapper ticketMapper,
+                             AuthorizationService authorizationService) {
         this.ticketRepository = ticketRepository;
         this.userRepository = userRepository;
         this.eventRepository = eventRepository;
         this.ticketMapper = ticketMapper;
+        this.authorizationService = authorizationService;
     }
 
     @Override
     @Transactional
     public TicketResponse purchase(PurchaseTicketRequest request) {
+        authorizationService.requireAnyRole("USER");
+        SecurityPrincipal principal = authorizationService.currentPrincipal();
+        authorizationService.requireOwnEmailOrAdmin(request.userEmail());
         // BR-TICKET-001 + BR-TICKET-002: usuario existe y activo
         User user = userRepository.findByEmailIgnoreCase(request.userEmail())
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + request.userEmail()));
+        if (!principal.userId().equals(user.getId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Access is denied");
+        }
 
         if (!Boolean.TRUE.equals(user.getActive())) {
             throw new BusinessRuleException("Inactive user cannot purchase tickets");
@@ -120,11 +131,20 @@ public class TicketServiceImpl implements TicketService {
     public TicketResponse findByCode(String ticketCode) {
         Ticket ticket = ticketRepository.findByTicketCode(ticketCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + ticketCode));
+        SecurityPrincipal principal = authorizationService.currentPrincipal();
+        if (!authorizationService.isStaffOrAdmin()
+                && !principal.userId().equals(ticket.getUser().getId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Access is denied");
+        }
         return ticketMapper.toResponse(ticket);
     }
 
     @Override
     public List<TicketResponse> findByUserEmail(String email) {
+        authorizationService.requireOwnEmailOrAdmin(email);
+        User user = userRepository.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        authorizationService.requireSelfOrAdmin(user.getId());
         return ticketRepository.findByUserEmailIgnoreCaseOrderByPurchaseDateDesc(email)
                 .stream()
                 .map(ticketMapper::toResponse)
@@ -133,6 +153,7 @@ public class TicketServiceImpl implements TicketService {
 
     @Override
     public List<TicketResponse> findPaidTicketsByEvent(String eventCode) {
+        authorizationService.requireAnyRole("STAFF", "ADMIN");
         // Reutiliza el JPQL existente del PRD anterior
         return ticketRepository.findPaidByEventCode(eventCode)
                 .stream()
@@ -143,8 +164,10 @@ public class TicketServiceImpl implements TicketService {
     @Override
     @Transactional
     public TicketResponse cancel(String ticketCode) {
+        authorizationService.requireAnyRole("USER", "ADMIN");
         Ticket ticket = ticketRepository.findByTicketCode(ticketCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + ticketCode));
+        authorizationService.requireSelfOrAdmin(ticket.getUser().getId());
 
         // BR-TICKET-010 + BR-TICKET-011: solo PAID
         if (ticket.getStatus() != TicketStatus.PAID) {
@@ -164,6 +187,7 @@ public class TicketServiceImpl implements TicketService {
     @Override
     @Transactional
     public TicketResponse markAsUsed(String ticketCode) {
+        authorizationService.requireAnyRole("STAFF", "ADMIN");
         Ticket ticket = ticketRepository.findByTicketCode(ticketCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + ticketCode));
 

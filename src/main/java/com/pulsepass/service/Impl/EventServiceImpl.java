@@ -14,9 +14,11 @@ import com.pulsepass.mapper.EventMapper;
 import com.pulsepass.repository.ArtistRepository;
 import com.pulsepass.repository.EventRepository;
 import com.pulsepass.repository.VenueRepository;
+import com.pulsepass.security.AuthorizationService;
 import com.pulsepass.service.EventService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -29,18 +31,22 @@ public class EventServiceImpl implements EventService {
     private final VenueRepository venueRepository;
     private final ArtistRepository artistRepository;
     private final EventMapper eventMapper;
+    private final AuthorizationService authorizationService;
 
     public EventServiceImpl(EventRepository eventRepository,
                             VenueRepository venueRepository,
                             ArtistRepository artistRepository,
-                            EventMapper eventMapper) {
+                            EventMapper eventMapper,
+                            AuthorizationService authorizationService) {
         this.eventRepository = eventRepository;
         this.venueRepository = venueRepository;
         this.artistRepository = artistRepository;
         this.eventMapper = eventMapper;
+        this.authorizationService = authorizationService;
     }
 
     @Override
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public EventResponse create(CreateEventRequest request) {
         // BR-EVENT-001: código único
@@ -86,6 +92,9 @@ public class EventServiceImpl implements EventService {
     public EventResponse findByCode(String eventCode) {
         Event event = eventRepository.findByEventCode(eventCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Event not found: " + eventCode));
+        if (event.getStatus() != EventStatus.PUBLISHED && !authorizationService.isStaffOrAdmin()) {
+            throw new ResourceNotFoundException("Event not found");
+        }
         return eventMapper.toResponse(event);
     }
 
@@ -98,6 +107,7 @@ public class EventServiceImpl implements EventService {
     }
 
     @Override
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public EventResponse publish(String eventCode) {
         Event event = eventRepository.findByEventCode(eventCode)
@@ -124,6 +134,7 @@ public class EventServiceImpl implements EventService {
     }
 
     @Override
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public EventResponse addArtist(String eventCode, Long artistId) {
         Event event = eventRepository.findByEventCode(eventCode)
@@ -151,6 +162,7 @@ public class EventServiceImpl implements EventService {
     public List<EventSummaryResponse> findByArtist(String stageName) {
         return eventRepository.findByArtistStageName(stageName)
                 .stream()
+                .filter(event -> event.getStatus() == EventStatus.PUBLISHED || authorizationService.isStaffOrAdmin())
                 .map(eventMapper::toSummary)
                 .toList();
     }

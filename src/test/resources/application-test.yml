@@ -4,3 +4,9 @@ spring:
       ddl-auto: validate
   flyway:
     enabled: true
+pulsepass:
+  security:
+    jwt:
+      issuer: pulsepass-test
+      secret-base64: cHVsc2VwYXNzLXRlc3QtaG1hYy1rZXktMzItYnl0ZXMtbG9uZw==
+      expiration: PT15M
