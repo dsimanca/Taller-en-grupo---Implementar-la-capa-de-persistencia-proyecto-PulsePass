@@ -14,6 +14,7 @@ import com.pulsepass.mapper.EventMapper;
 import com.pulsepass.repository.ArtistRepository;
 import com.pulsepass.repository.EventRepository;
 import com.pulsepass.repository.VenueRepository;
+import com.pulsepass.service.AuthorizationService;
 import com.pulsepass.service.EventService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,21 +30,24 @@ public class EventServiceImpl implements EventService {
     private final VenueRepository venueRepository;
     private final ArtistRepository artistRepository;
     private final EventMapper eventMapper;
+    private final AuthorizationService authorizationService;
 
     public EventServiceImpl(EventRepository eventRepository,
                             VenueRepository venueRepository,
                             ArtistRepository artistRepository,
-                            EventMapper eventMapper) {
+                            EventMapper eventMapper,
+                            AuthorizationService authorizationService) {
         this.eventRepository = eventRepository;
         this.venueRepository = venueRepository;
         this.artistRepository = artistRepository;
         this.eventMapper = eventMapper;
+        this.authorizationService = authorizationService;
     }
 
     @Override
     @Transactional
     public EventResponse create(CreateEventRequest request) {
-        // BR-EVENT-001: código único
+        // BR-EVENT-001: codigo unico
         if (eventRepository.existsByEventCode(request.eventCode())) {
             throw new DuplicateResourceException("Event code already exists: " + request.eventCode());
         }
@@ -62,7 +66,7 @@ public class EventServiceImpl implements EventService {
             throw new BusinessRuleException("Event date must be in the future");
         }
 
-        // BR-EVENT-006: edad mínima >= 0
+        // BR-EVENT-006: edad minima >= 0
         if (request.minimumAge() == null || request.minimumAge() < 0) {
             throw new BusinessRuleException("Minimum age must be >= 0");
         }
@@ -86,6 +90,11 @@ public class EventServiceImpl implements EventService {
     public EventResponse findByCode(String eventCode) {
         Event event = eventRepository.findByEventCode(eventCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Event not found: " + eventCode));
+
+        // Fase 4: los borradores (no publicados) no se revelan publicamente.
+        if (event.getStatus() != EventStatus.PUBLISHED && !authorizationService.isStaffOrAdmin()) {
+            throw new ResourceNotFoundException("Event not found: " + eventCode);
+        }
         return eventMapper.toResponse(event);
     }
 
@@ -149,8 +158,16 @@ public class EventServiceImpl implements EventService {
 
     @Override
     public List<EventSummaryResponse> findByArtist(String stageName) {
-        return eventRepository.findByArtistStageName(stageName)
-                .stream()
+        List<Event> events = eventRepository.findByArtistStageName(stageName);
+
+        // Fase 4: publico unicamente eventos publicados; STAFF/ADMIN ven todos los estados.
+        if (!authorizationService.isStaffOrAdmin()) {
+            events = events.stream()
+                    .filter(event -> event.getStatus() == EventStatus.PUBLISHED)
+                    .toList();
+        }
+
+        return events.stream()
                 .map(eventMapper::toSummary)
                 .toList();
     }

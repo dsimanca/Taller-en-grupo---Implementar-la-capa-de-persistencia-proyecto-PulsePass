@@ -4,3 +4,13 @@ spring:
       ddl-auto: validate
   flyway:
     enabled: true
+
+# Clave ficticia exclusiva del perfil de tests. No reutilizar en produccion.
+pulsepass:
+  security:
+    jwt:
+      issuer: pulsepass-test
+      secret-base64: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      access-token-ttl: PT15M
+    cors:
+      allowed-origins: http://localhost:4200

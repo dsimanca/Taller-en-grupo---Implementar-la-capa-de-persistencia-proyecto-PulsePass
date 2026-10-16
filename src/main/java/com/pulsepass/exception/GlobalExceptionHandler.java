@@ -7,6 +7,8 @@ import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -58,6 +60,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({MissingServletRequestParameterException.class, MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ErrorResponse> handleInvalidParameter(Exception ex) {
         return build(HttpStatus.BAD_REQUEST, "Bad Request", "Invalid request parameter", Map.of());
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleAuthentication(AuthenticationException ex) {
+        // Login incorrecto: 401 generico, sin revelar si el usuario existe.
+        return build(HttpStatus.UNAUTHORIZED, "Unauthorized", "Invalid credentials", Map.of());
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
+        // Autorizacion de propiedad fallida (anti-IDOR): 403 uniforme.
+        return build(HttpStatus.FORBIDDEN, "Forbidden",
+                "No tiene permisos para realizar esta operacion", Map.of());
     }
 
     @ExceptionHandler(Exception.class)

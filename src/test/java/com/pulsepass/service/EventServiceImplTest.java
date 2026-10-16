@@ -36,17 +36,39 @@ class EventServiceImplTest {
     @Mock private VenueRepository venueRepository;
     @Mock private ArtistRepository artistRepository;
     @Mock private EventMapper eventMapper;
+    @Mock private AuthorizationService authorizationService;
     private EventService service;
 
     @BeforeEach
     void setUp() {
-        service = new EventServiceImpl(eventRepository, venueRepository, artistRepository, eventMapper);
+        service = new EventServiceImpl(eventRepository, venueRepository, artistRepository, eventMapper, authorizationService);
     }
 
     @Test
-    void findsAnExistingEvent() {
+    void findsAnExistingPublishedEvent() {
+        Event event = event("EV-1", EventStatus.PUBLISHED);
+        when(eventRepository.findByEventCode("EV-1")).thenReturn(Optional.of(event));
+
+        service.findByCode("EV-1");
+
+        verify(eventMapper).toResponse(event);
+    }
+
+    @Test
+    void hidesADraftEventFromAnonymous() {
         Event event = event("EV-1", EventStatus.DRAFT);
         when(eventRepository.findByEventCode("EV-1")).thenReturn(Optional.of(event));
+        when(authorizationService.isStaffOrAdmin()).thenReturn(false);
+
+        assertThatThrownBy(() -> service.findByCode("EV-1"))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void allowsStaffToReadADraftEvent() {
+        Event event = event("EV-1", EventStatus.DRAFT);
+        when(eventRepository.findByEventCode("EV-1")).thenReturn(Optional.of(event));
+        when(authorizationService.isStaffOrAdmin()).thenReturn(true);
 
         service.findByCode("EV-1");
 

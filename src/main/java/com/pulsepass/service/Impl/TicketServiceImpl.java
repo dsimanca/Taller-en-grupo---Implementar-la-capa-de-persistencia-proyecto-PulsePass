@@ -14,12 +14,12 @@ import com.pulsepass.mapper.TicketMapper;
 import com.pulsepass.repository.EventRepository;
 import com.pulsepass.repository.TicketRepository;
 import com.pulsepass.repository.UserRepository;
+import com.pulsepass.service.AuthorizationService;
 import com.pulsepass.service.TicketService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Period;
 import java.util.List;
@@ -33,20 +33,26 @@ public class TicketServiceImpl implements TicketService {
     private final UserRepository userRepository;
     private final EventRepository eventRepository;
     private final TicketMapper ticketMapper;
+    private final AuthorizationService authorizationService;
 
     public TicketServiceImpl(TicketRepository ticketRepository,
                              UserRepository userRepository,
                              EventRepository eventRepository,
-                             TicketMapper ticketMapper) {
+                             TicketMapper ticketMapper,
+                             AuthorizationService authorizationService) {
         this.ticketRepository = ticketRepository;
         this.userRepository = userRepository;
         this.eventRepository = eventRepository;
         this.ticketMapper = ticketMapper;
+        this.authorizationService = authorizationService;
     }
 
     @Override
     @Transactional
     public TicketResponse purchase(PurchaseTicketRequest request) {
+        // Fase 4 (anti-IDOR): el userEmail del DTO debe representar al principal autenticado.
+        authorizationService.requirePurchaseForSelf(request.userEmail());
+
         // BR-TICKET-001 + BR-TICKET-002: usuario existe y activo
         User user = userRepository.findByEmailIgnoreCase(request.userEmail())
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + request.userEmail()));
@@ -68,7 +74,7 @@ public class TicketServiceImpl implements TicketService {
             throw new BusinessRuleException("Cannot purchase tickets for past events");
         }
 
-        // BR-TICKET-006: edad mínima
+        // BR-TICKET-006: edad minima
         if (event.getMinimumAge() > 0) {
             if (user.getProfile() == null || user.getProfile().getBirthDate() == null) {
                 throw new BusinessRuleException("User birth date is required for age-restricted events");
@@ -95,7 +101,7 @@ public class TicketServiceImpl implements TicketService {
         // BR-TICKET-009: calcular precio (BigDecimal, nunca negativo)
         BigDecimal price = calculatePrice(request.type());
 
-        // Crear ticket (estado inicial PAID según PRD simplificado)
+        // Crear ticket (estado inicial PAID segun PRD simplificado)
         Ticket ticket = new Ticket();
         ticket.setTicketCode("TCK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
         ticket.setType(request.type());
@@ -107,7 +113,7 @@ public class TicketServiceImpl implements TicketService {
 
         Ticket saved = ticketRepository.save(ticket);
 
-        // BR-TICKET-008: si se completó la capacidad → SOLD_OUT
+        // BR-TICKET-008: si se completo la capacidad -> SOLD_OUT
         if (paidCount + 1 == event.getVenue().getCapacity()) {
             event.setStatus(EventStatus.SOLD_OUT);
             eventRepository.save(event);
@@ -120,11 +126,15 @@ public class TicketServiceImpl implements TicketService {
     public TicketResponse findByCode(String ticketCode) {
         Ticket ticket = ticketRepository.findByTicketCode(ticketCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + ticketCode));
+        // Propietario, o STAFF/ADMIN en operacion autorizada.
+        authorizationService.requireTicketOwnerOrPrivileged(ticket.getUser().getEmail());
         return ticketMapper.toResponse(ticket);
     }
 
     @Override
     public List<TicketResponse> findByUserEmail(String email) {
+        // Propietario, o ADMIN autorizado.
+        authorizationService.requireSelfByEmailOrAdmin(email);
         return ticketRepository.findByUserEmailIgnoreCaseOrderByPurchaseDateDesc(email)
                 .stream()
                 .map(ticketMapper::toResponse)
@@ -133,7 +143,8 @@ public class TicketServiceImpl implements TicketService {
 
     @Override
     public List<TicketResponse> findPaidTicketsByEvent(String eventCode) {
-        // Reutiliza el JPQL existente del PRD anterior
+        // STAFF/ADMIN (controlado ademas en la cadena de filtros).
+        authorizationService.requirePrincipal();
         return ticketRepository.findPaidByEventCode(eventCode)
                 .stream()
                 .map(ticketMapper::toResponse)
@@ -146,12 +157,15 @@ public class TicketServiceImpl implements TicketService {
         Ticket ticket = ticketRepository.findByTicketCode(ticketCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + ticketCode));
 
+        // Fase 4: propiedad antes de mutar estado. Propietario o ADMIN autorizado.
+        authorizationService.requireTicketOwnerOrAdmin(ticket.getUser().getEmail());
+
         // BR-TICKET-010 + BR-TICKET-011: solo PAID
         if (ticket.getStatus() != TicketStatus.PAID) {
             throw new BusinessRuleException("Only PAID tickets can be cancelled");
         }
 
-        // BR-TICKET-012: no cancelar después de la fecha del evento
+        // BR-TICKET-012: no cancelar despues de la fecha del evento
         if (!ticket.getEvent().getEventDate().isAfter(LocalDateTime.now())) {
             throw new BusinessRuleException("Cannot cancel ticket after event date");
         }
@@ -164,6 +178,9 @@ public class TicketServiceImpl implements TicketService {
     @Override
     @Transactional
     public TicketResponse markAsUsed(String ticketCode) {
+        // STAFF/ADMIN (controlado ademas en la cadena de filtros).
+        authorizationService.requirePrincipal();
+
         Ticket ticket = ticketRepository.findByTicketCode(ticketCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + ticketCode));
 
@@ -172,7 +189,6 @@ public class TicketServiceImpl implements TicketService {
             throw new BusinessRuleException("Only PAID tickets can be marked as used");
         }
 
-        // BR-TICKET-014: un CANCELLED nunca puede usarse (ya cubierto arriba)
         ticket.setStatus(TicketStatus.USED);
         Ticket saved = ticketRepository.save(ticket);
         return ticketMapper.toResponse(saved);
