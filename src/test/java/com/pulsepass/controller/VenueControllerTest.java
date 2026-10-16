@@ -9,22 +9,25 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.pulsepass.dto.response.VenueResponse;
-import com.pulsepass.exception.GlobalExceptionHandler;
 import com.pulsepass.exception.ResourceNotFoundException;
+import com.pulsepass.security.CustomUserDetailsService;
+import com.pulsepass.security.EnableSecuritySlice;
+import com.pulsepass.security.JwtService;
 import com.pulsepass.service.VenueService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(VenueController.class)
-@Import(GlobalExceptionHandler.class)
+@EnableSecuritySlice
 class VenueControllerTest {
     @Autowired private MockMvc mockMvc;
     @MockitoBean private VenueService venueService;
+    @MockitoBean private JwtService jwtService;
+    @MockitoBean private CustomUserDetailsService customUserDetailsService;
 
     @Test void findsVenue() throws Exception {
         when(venueService.findByCode("VEN-SMR-01")).thenReturn(venue());

@@ -15,14 +15,47 @@ Todos los endpoints usan el prefijo `/api`, JSON y respuestas de error uniformes
 - Tickets: `POST /tickets`, `GET /tickets/{ticketCode}`, `GET /tickets/by-user?email=...`,
   `GET /events/{eventCode}/tickets/paid`, `PATCH /tickets/{ticketCode}/cancel` y
   `PATCH /tickets/{ticketCode}/use`.
+- Autenticacion: `POST /auth/login` y `GET /auth/me`.
 
 Las creaciones retornan `201`; las consultas y transiciones exitosas, `200`. Los errores usan
-`ErrorResponse` y retornan `400`, `404`, `409` o `500` según corresponda.
+`ErrorResponse` y retornan `400`, `401`, `403`, `404`, `409` o `500` según corresponda.
+
+## Seguridad (Fase 4)
+
+La capa de seguridad usa Spring Security con JWT firmado en HS256 (JJWT) y autorizacion por
+roles `USER`, `STAFF` y `ADMIN`. La API es stateless: toda peticion protegida requiere
+`Authorization: Bearer <token>`.
+
+Flujo:
+
+1. `POST /auth/login` con `identifier` (username o email) y `password` valida las credenciales
+   contra la tabla `user_credentials` (hash BCrypt) y devuelve `accessToken`, `tokenType` y
+   `expiresIn`.
+2. El token incluye `iss`, `sub` (id interno del usuario), `iat`, `exp`, `jti` y el claim `roles`.
+3. `JwtAuthenticationFilter` valida la firma, emisor y expiracion, recarga el usuario por id y
+   solo autentica si la cuenta sigue activa.
+
+Matriz de autorizacion:
+
+| Endpoint | Acceso |
+| --- | --- |
+| `POST /auth/login`, `POST /users` | Publico |
+| `GET /events/published`, `GET /events/by-artist`, `GET /events/{code}`, `GET /artists/**`, `GET /venues/**` | Publico |
+| `POST /events`, `PATCH /events/{code}/publish`, `POST /events/{code}/artists/{artistId}` | ADMIN |
+| `GET /events/{code}/tickets/paid`, `PATCH /tickets/{code}/use` | STAFF o ADMIN |
+| `GET /auth/me`, `POST /tickets`, `GET /tickets/{code}`, `GET /tickets/by-user`, `PATCH /tickets/{code}/cancel`, `GET /users/by-email`, `GET /users/by-username` | Autenticado |
+
+Ademas de los roles, se aplica control de propiedad (anti-IDOR) en la capa de servicio mediante
+`AuthorizationService`: cada usuario solo opera sobre sus propios recursos (comprar, ver y cancelar
+sus tickets, consultar su propio usuario); los borradores de evento se ocultan a quien no es
+`STAFF`/`ADMIN`. Las respuestas `401` (no autenticado) y `403` (sin permiso) usan el mismo
+`ErrorResponse`.
 
 ## Tecnologias
 
 - Java 21
 - Spring Boot 4.x
+- Spring Security 7 + JJWT 0.13
 - Spring Data JPA / Hibernate
 - PostgreSQL
 - Flyway
@@ -48,6 +81,8 @@ Flyway es el responsable de crear y evolucionar el esquema:
 - `V1__create_schema.sql`: crea `venues`, `events`, `artists`, `event_artists`, `users`, `user_profiles` y `tickets` con PK, FK, UNIQUE, CHECK e indices.
 - `V2__insert_initial_artists.sql`: inserta artistas iniciales de prueba.
 - `V3__add_streaming_url_to_event.sql`: agrega `streaming_url VARCHAR(500)` nullable a `events`.
+- `V4__security_credentials_roles.sql`: crea `user_credentials` (PK/FK `user_id`) y `user_roles`
+  (PK `user_id` + `role`, con `CHECK role IN ('USER','STAFF','ADMIN')`).
 
 Hibernate se ejecuta en modo `validate`, por lo que no crea ni modifica tablas.
 
@@ -69,12 +104,27 @@ Los repositorios usan `JpaRepository`, Query Methods y JPQL segun el caso:
 - `TicketRepository.findPaidByEventCode`
 - `TicketRepository.countPaidByEventCode`
 - `TicketRepository.findForFutureEvents`
+- `UserCredentialRepository.findByUserId`
+- `UserRoleRepository.findRolesByUserId`
 
 ## Pruebas
 
-Las pruebas de integracion usan PostgreSQL real mediante Testcontainers. No se usa H2.
+`.\mvnw.cmd test` ejecuta las pruebas unitarias y las de capa web (`@WebMvcTest`), incluida la
+matriz de autorizacion de seguridad (`SecurityAuthorizationMatrixTest`) que valida `401`/`403` y el
+acceso por rol con la cadena real de Spring Security (usando `@WithMockUser`). Requiere
+`spring-boot-starter-security-test` para que la integracion MockMvc + Spring Security funcione en
+Spring Boot 4.
 
-Ejecutar:
+Las pruebas de integracion (`*IT`, `VenuePersistenceTest`) usan PostgreSQL real mediante
+Testcontainers (no H2) y estan excluidas del build por defecto de Surefire; requieren Docker
+activo. Incluyen `SecurityFlowIT`, que valida de extremo a extremo registro atomico (credencial
+BCrypt + `ROLE_USER`), login y verificacion del JWT. Para ejecutarlas manualmente:
+
+```powershell
+.\mvnw.cmd test "-Dtest=*IT,VenuePersistenceTest"
+```
+
+Ejecutar todo:
 
 ```bash
 ./mvnw clean test
@@ -97,5 +147,23 @@ spring:
       ddl-auto: validate
   flyway:
     enabled: true
+
+pulsepass:
+  security:
+    jwt:
+      issuer: pulsepass-api
+      secret-base64: ${PULSEPASS_JWT_SECRET_BASE64}
+      access-token-ttl: PT15M
+  cors:
+    allowed-origins: ${PULSEPASS_CORS_ALLOWED_ORIGINS:http://localhost:4200}
 ```
+
+Variables de entorno:
+
+- `PULSEPASS_JWT_SECRET_BASE64` (obligatoria): secreto Base64 de al menos 32 bytes. La aplicacion
+  falla al arrancar si falta o es demasiado corto.
+- `PULSEPASS_JWT_ISSUER` (opcional, por defecto `pulsepass-api`).
+- `PULSEPASS_CORS_ALLOWED_ORIGINS` (opcional, por defecto `http://localhost:4200`).
+
+Ver `.env.example` para un ejemplo.
 

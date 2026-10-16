@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
@@ -34,6 +35,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
 class TicketServiceImplTest {
@@ -41,11 +43,12 @@ class TicketServiceImplTest {
     @Mock private UserRepository userRepository;
     @Mock private EventRepository eventRepository;
     @Mock private TicketMapper ticketMapper;
+    @Mock private AuthorizationService authorizationService;
     private TicketService service;
 
     @BeforeEach
     void setUp() {
-        service = new TicketServiceImpl(ticketRepository, userRepository, eventRepository, ticketMapper);
+        service = new TicketServiceImpl(ticketRepository, userRepository, eventRepository, ticketMapper, authorizationService);
     }
 
     @Test
@@ -68,6 +71,15 @@ class TicketServiceImplTest {
         when(userRepository.findByEmailIgnoreCase("andrea@email.com")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.purchase(request())).isInstanceOf(ResourceNotFoundException.class);
+        verify(ticketRepository, never()).save(any(Ticket.class));
+    }
+
+    @Test
+    void rejectsPurchasingOnBehalfOfAnotherIdentityWithoutCreatingTickets() {
+        doThrow(new AccessDeniedException("Solo puede operar sobre sus propios recursos"))
+                .when(authorizationService).requirePurchaseForSelf("andrea@email.com");
+
+        assertThatThrownBy(() -> service.purchase(request())).isInstanceOf(AccessDeniedException.class);
         verify(ticketRepository, never()).save(any(Ticket.class));
     }
 
@@ -209,6 +221,9 @@ class TicketServiceImplTest {
         Ticket ticket = new Ticket();
         ticket.setTicketCode("TCK-1");
         ticket.setStatus(status);
+        User owner = new User();
+        owner.setEmail("andrea@email.com");
+        ticket.setUser(owner);
         ticket.setEvent(event(EventStatus.PUBLISHED, 0, 3));
         return ticket;
     }
