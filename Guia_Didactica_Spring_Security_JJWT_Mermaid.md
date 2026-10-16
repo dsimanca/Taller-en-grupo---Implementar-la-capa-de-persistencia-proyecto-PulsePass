@@ -1,6 +1,7 @@
 Guia_Didactica_Spring_Security_JJWT_Mermaid.md 
 
-2026-10-02 
+2026-10-02 creacion
+
 
 # Guía didáctica — Spring Security con JWT usando JJWT 
 
