@@ -76,8 +76,11 @@ class TicketServiceImplTest {
 
     @Test
     void rejectsPurchasingOnBehalfOfAnotherIdentityWithoutCreatingTickets() {
+        User owner = user(true, LocalDate.now().minusYears(25));
+        owner.setId(7L);
+        when(userRepository.findByEmailIgnoreCase("andrea@email.com")).thenReturn(Optional.of(owner));
         doThrow(new AccessDeniedException("Solo puede operar sobre sus propios recursos"))
-                .when(authorizationService).requirePurchaseForSelf("andrea@email.com");
+                .when(authorizationService).requirePurchaseForSelf(7L);
 
         assertThatThrownBy(() -> service.purchase(request())).isInstanceOf(AccessDeniedException.class);
         verify(ticketRepository, never()).save(any(Ticket.class));
@@ -148,12 +151,28 @@ class TicketServiceImplTest {
     @Test
     void cancelsAPaidTicketBeforeTheEvent() {
         Ticket ticket = ticket(TicketStatus.PAID);
+        ticket.getUser().setId(7L);
         when(ticketRepository.findByTicketCode("TCK-1")).thenReturn(Optional.of(ticket));
         when(ticketRepository.save(ticket)).thenReturn(ticket);
 
         service.cancel("TCK-1");
 
         assertThat(ticket.getStatus()).isEqualTo(TicketStatus.CANCELLED);
+        verify(authorizationService).requireTicketOwnerOrAdmin(7L);
+    }
+
+    @Test
+    void rejectsCancellationBeforeMutatingATicketOwnedBySomeoneElse() {
+        Ticket ticket = ticket(TicketStatus.PAID);
+        ticket.getUser().setId(99L);
+        when(ticketRepository.findByTicketCode("TCK-1")).thenReturn(Optional.of(ticket));
+        doThrow(new AccessDeniedException("Forbidden"))
+                .when(authorizationService).requireTicketOwnerOrAdmin(99L);
+
+        assertThatThrownBy(() -> service.cancel("TCK-1")).isInstanceOf(AccessDeniedException.class);
+
+        assertThat(ticket.getStatus()).isEqualTo(TicketStatus.PAID);
+        verify(ticketRepository, never()).save(any(Ticket.class));
     }
 
     @Test
@@ -174,6 +193,7 @@ class TicketServiceImplTest {
         service.markAsUsed("TCK-1");
 
         assertThat(ticket.getStatus()).isEqualTo(TicketStatus.USED);
+        verify(authorizationService).requireStaffOrAdmin();
     }
 
     @Test
@@ -197,6 +217,7 @@ class TicketServiceImplTest {
 
     private User user(boolean active, LocalDate birthDate) {
         User user = new User();
+        user.setId(7L);
         user.setEmail("andrea@email.com");
         user.setActive(active);
         UserProfile profile = new UserProfile();

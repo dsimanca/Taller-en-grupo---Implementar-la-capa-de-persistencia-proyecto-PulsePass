@@ -1,7 +1,10 @@
 package com.pulsepass.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.MalformedJwtException;
+import io.jsonwebtoken.UnsupportedJwtException;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import java.time.Instant;
@@ -67,15 +70,36 @@ public class JwtService {
     }
 
     public String extractUserId(String token) {
-        return extractAllClaims(token).getSubject();
+        String subject = extractAllClaims(token).getSubject();
+        try {
+            if (Long.parseLong(subject) <= 0) {
+                throw new NumberFormatException();
+            }
+        } catch (NumberFormatException ex) {
+            throw new MalformedJwtException("JWT subject must be a positive user ID", ex);
+        }
+        return subject;
     }
 
     private Claims extractAllClaims(String token) {
-        return Jwts.parser()
+        Jws<Claims> signedClaims = Jwts.parser()
                 .verifyWith(signingKey)
                 .requireIssuer(properties.issuer())
                 .build()
-                .parseSignedClaims(token)
-                .getPayload();
+                .parseSignedClaims(token);
+        if (!Jwts.SIG.HS256.getId().equals(signedClaims.getHeader().getAlgorithm())) {
+            throw new UnsupportedJwtException("Only HS256 tokens are accepted");
+        }
+        Claims claims = signedClaims.getPayload();
+        if (claims.getSubject() == null || claims.getSubject().isBlank()
+                || claims.getIssuedAt() == null
+                || claims.getExpiration() == null
+                || claims.getId() == null || claims.getId().isBlank()) {
+            throw new MalformedJwtException("JWT is missing required claims");
+        }
+        if (claims.getIssuedAt().toInstant().isAfter(Instant.now())) {
+            throw new MalformedJwtException("JWT issued-at time is in the future");
+        }
+        return claims;
     }
 }

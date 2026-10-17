@@ -4,6 +4,7 @@ import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.mockito.ArgumentMatchers.any;
@@ -80,9 +81,24 @@ class SecurityAuthorizationMatrixTest {
     }
 
     @Test
+    void returnsTheValidatedRequestIdHeader() throws Exception {
+        mockMvc.perform(get("/api/events/published").header("X-Request-ID", "matrix-check-01"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Request-ID", "matrix-check-01"));
+    }
+
+    @Test
     void registrationIsPublic() throws Exception {
         mockMvc.perform(post("/api/users").contentType(APPLICATION_JSON).content(USER_JSON))
                 .andExpect(status().isCreated());
+    }
+
+    @Test
+    void registrationRejectsPasswordsOverTheBcryptByteLimit() throws Exception {
+        String request = USER_JSON.replace("UnaFraseSeguraLarga2026!", "é".repeat(37));
+
+        mockMvc.perform(post("/api/users").contentType(APPLICATION_JSON).content(request))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -107,8 +123,18 @@ class SecurityAuthorizationMatrixTest {
     }
 
     @Test
+    void nestedArtistRoutesAreNotAccidentallyPublic() throws Exception {
+        mockMvc.perform(get("/api/artists/1/private")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void venuesArePublic() throws Exception {
         mockMvc.perform(get("/api/venues/VEN-1")).andExpect(status().isOk());
+    }
+
+    @Test
+    void activeVenuesArePublic() throws Exception {
+        mockMvc.perform(get("/api/venues/active")).andExpect(status().isOk());
     }
 
     // --- Administracion (ADMIN) ---
@@ -206,6 +232,14 @@ class SecurityAuthorizationMatrixTest {
     }
 
     @Test
+    @WithMockUser(roles = "STAFF")
+    void staffCannotPurchaseTickets() throws Exception {
+        mockMvc.perform(post("/api/tickets").contentType(APPLICATION_JSON).content(TICKET_JSON))
+                .andExpect(status().isForbidden());
+        verify(ticketService, never()).purchase(any());
+    }
+
+    @Test
     void anonymousCannotFindTicket() throws Exception {
         mockMvc.perform(get("/api/tickets/TCK-1")).andExpect(status().isUnauthorized());
     }
@@ -232,6 +266,15 @@ class SecurityAuthorizationMatrixTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401))
                 .andExpect(jsonPath("$.error").value("Unauthorized"));
+    }
+
+    @Test
+    void invalidBearerTokenIsRejectedEvenOnPublicRoute() throws Exception {
+        when(jwtService.extractUserId(anyString())).thenThrow(new JwtException("invalid"));
+
+        mockMvc.perform(get("/api/events/published").header(HttpHeaders.AUTHORIZATION, "Bearer invalid"))
+                .andExpect(status().isUnauthorized());
+        verify(eventService, never()).findPublishedEvents();
     }
 
     @Test

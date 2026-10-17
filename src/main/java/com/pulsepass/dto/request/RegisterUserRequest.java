@@ -1,10 +1,12 @@
 package com.pulsepass.dto.request;
 
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Past;
 import jakarta.validation.constraints.Size;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 
 public record RegisterUserRequest(
@@ -17,4 +19,9 @@ public record RegisterUserRequest(
         @NotBlank(message = "Phone is required") String phone,
         @NotBlank(message = "City is required") String city,
         @NotNull(message = "Birth date is required") @Past(message = "Birth date must be in the past") LocalDate birthDate
-) {}
+) {
+    @AssertTrue(message = "Password must not exceed 72 UTF-8 bytes")
+    public boolean isPasswordWithinBcryptLimit() {
+        return password == null || password.getBytes(StandardCharsets.UTF_8).length <= 72;
+    }
+}
