@@ -1,4 +1,7 @@
 spring:
+  datasource:
+    username: pulsepass-test
+    password: test-only-password
   jpa:
     hibernate:
       ddl-auto: validate

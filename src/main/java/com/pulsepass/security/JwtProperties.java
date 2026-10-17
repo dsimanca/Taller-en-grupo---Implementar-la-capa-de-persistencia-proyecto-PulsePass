@@ -19,8 +19,8 @@ public record JwtProperties(
         if (accessTokenTtl == null) {
             accessTokenTtl = Duration.ofMinutes(15);
         }
-        if (accessTokenTtl.isZero() || accessTokenTtl.isNegative()) {
-            throw new IllegalArgumentException("JWT access-token-ttl must be positive");
+        if (accessTokenTtl.isNegative() || accessTokenTtl.toSeconds() < 1) {
+            throw new IllegalArgumentException("JWT access-token-ttl must be at least one second");
         }
     }
 }

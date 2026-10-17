@@ -2,9 +2,9 @@ spring:
   application:
     name: pulsepass
   datasource:
-    url: jdbc:postgresql://localhost:5432/pulsepass
-    username: pulsepass
-    password: pulsepass
+    url: ${PULSEPASS_DB_URL:jdbc:postgresql://localhost:5432/pulsepass}
+    username: ${PULSEPASS_DB_USERNAME:pulsepass}
+    password: ${PULSEPASS_DB_PASSWORD}
   jpa:
     hibernate:
       ddl-auto: validate          # ¡CRÍTICO! Solo valida, nunca crea/modifica

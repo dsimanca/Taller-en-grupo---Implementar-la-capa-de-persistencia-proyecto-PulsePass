@@ -22,7 +22,6 @@ import org.springframework.test.context.ActiveProfiles;
         GlobalExceptionHandler.class,
         SecurityConfig.class,
         RequestIdFilter.class,
-        JwtAuthenticationFilter.class,
         RestAuthenticationEntryPoint.class,
         RestAccessDeniedHandler.class
 })
