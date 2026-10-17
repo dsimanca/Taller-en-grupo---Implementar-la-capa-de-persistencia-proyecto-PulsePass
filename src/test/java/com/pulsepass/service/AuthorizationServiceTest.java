@@ -68,26 +68,50 @@ class AuthorizationServiceTest {
     }
 
     @Test
-    void matchesTheOwnerEmailIgnoringCase() {
+    void authorizesTheOwnerByPersistentIdInsteadOfEmail() {
         authenticate("andrea@email.com", Role.USER);
 
-        assertThatCode(() -> service.requireSelfByEmailOrAdmin("ANDREA@EMAIL.COM"))
-                .doesNotThrowAnyException();
+        assertThatCode(() -> service.requireSelfOrAdmin(7L)).doesNotThrowAnyException();
     }
 
     @Test
     void rejectsPurchaseOnBehalfOfAnotherIdentityEvenForAdmin() {
         authenticate("admin@email.com", Role.ADMIN);
 
-        assertThatThrownBy(() -> service.requirePurchaseForSelf("andrea@email.com"))
+        assertThatThrownBy(() -> service.requirePurchaseForSelf(99L))
                 .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void allowsUserToPurchaseForTheirOwnPersistentId() {
+        authenticate("andrea@email.com", Role.USER);
+
+        assertThatCode(() -> service.requirePurchaseForSelf(7L)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void doesNotAllowStaffToPurchaseTickets() {
+        authenticate("staff@email.com", Role.STAFF);
+
+        assertThatThrownBy(() -> service.requirePurchaseForSelf(7L))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void onlyStaffOrAdminCanUseOperationalTicketActions() {
+        authenticate("andrea@email.com", Role.USER);
+
+        assertThatThrownBy(service::requireStaffOrAdmin).isInstanceOf(AccessDeniedException.class);
+
+        authenticate("laura@email.com", Role.STAFF);
+        assertThatCode(service::requireStaffOrAdmin).doesNotThrowAnyException();
     }
 
     @Test
     void allowsTicketAccessForStaff() {
         authenticate("staff@email.com", Role.STAFF);
 
-        assertThatCode(() -> service.requireTicketOwnerOrPrivileged("andrea@email.com"))
+        assertThatCode(() -> service.requireTicketOwnerOrPrivileged(99L))
                 .doesNotThrowAnyException();
     }
 
@@ -95,7 +119,15 @@ class AuthorizationServiceTest {
     void doesNotAllowStaffToCancelSomeoneElsesTicket() {
         authenticate("staff@email.com", Role.STAFF);
 
-        assertThatThrownBy(() -> service.requireTicketOwnerOrAdmin("andrea@email.com"))
+        assertThatThrownBy(() -> service.requireTicketOwnerOrAdmin(99L))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void doesNotAllowStaffToCancelTheirOwnTicket() {
+        authenticate("staff@email.com", Role.STAFF);
+
+        assertThatThrownBy(() -> service.requireTicketOwnerOrAdmin(7L))
                 .isInstanceOf(AccessDeniedException.class);
     }
 
@@ -103,7 +135,7 @@ class AuthorizationServiceTest {
     void allowsAdminToCancelSomeoneElsesTicket() {
         authenticate("admin@email.com", Role.ADMIN);
 
-        assertThatCode(() -> service.requireTicketOwnerOrAdmin("andrea@email.com"))
+        assertThatCode(() -> service.requireTicketOwnerOrAdmin(99L))
                 .doesNotThrowAnyException();
     }
 }

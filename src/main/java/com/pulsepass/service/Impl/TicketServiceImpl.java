@@ -50,12 +50,12 @@ public class TicketServiceImpl implements TicketService {
     @Override
     @Transactional
     public TicketResponse purchase(PurchaseTicketRequest request) {
-        // Fase 4 (anti-IDOR): el userEmail del DTO debe representar al principal autenticado.
-        authorizationService.requirePurchaseForSelf(request.userEmail());
-
         // BR-TICKET-001 + BR-TICKET-002: usuario existe y activo
-        User user = userRepository.findByEmailIgnoreCase(request.userEmail())
-                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + request.userEmail()));
+        User user = userRepository.findByEmailIgnoreCase(request.userEmail()).orElse(null);
+        authorizationService.requirePurchaseForSelf(user == null ? null : user.getId());
+        if (user == null) {
+            throw new ResourceNotFoundException("User not found: " + request.userEmail());
+        }
 
         if (!Boolean.TRUE.equals(user.getActive())) {
             throw new BusinessRuleException("Inactive user cannot purchase tickets");
@@ -127,14 +127,17 @@ public class TicketServiceImpl implements TicketService {
         Ticket ticket = ticketRepository.findByTicketCode(ticketCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + ticketCode));
         // Propietario, o STAFF/ADMIN en operacion autorizada.
-        authorizationService.requireTicketOwnerOrPrivileged(ticket.getUser().getEmail());
+        authorizationService.requireTicketOwnerOrPrivileged(ticket.getUser().getId());
         return ticketMapper.toResponse(ticket);
     }
 
     @Override
     public List<TicketResponse> findByUserEmail(String email) {
-        // Propietario, o ADMIN autorizado.
-        authorizationService.requireSelfByEmailOrAdmin(email);
+        // La identidad se compara por ID persistente, no por el correo suministrado.
+        Long requestedUserId = userRepository.findByEmailIgnoreCase(email)
+                .map(User::getId)
+                .orElse(null);
+        authorizationService.requireSelfOrAdmin(requestedUserId);
         return ticketRepository.findByUserEmailIgnoreCaseOrderByPurchaseDateDesc(email)
                 .stream()
                 .map(ticketMapper::toResponse)
@@ -143,8 +146,7 @@ public class TicketServiceImpl implements TicketService {
 
     @Override
     public List<TicketResponse> findPaidTicketsByEvent(String eventCode) {
-        // STAFF/ADMIN (controlado ademas en la cadena de filtros).
-        authorizationService.requirePrincipal();
+        authorizationService.requireStaffOrAdmin();
         return ticketRepository.findPaidByEventCode(eventCode)
                 .stream()
                 .map(ticketMapper::toResponse)
@@ -158,7 +160,7 @@ public class TicketServiceImpl implements TicketService {
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + ticketCode));
 
         // Fase 4: propiedad antes de mutar estado. Propietario o ADMIN autorizado.
-        authorizationService.requireTicketOwnerOrAdmin(ticket.getUser().getEmail());
+        authorizationService.requireTicketOwnerOrAdmin(ticket.getUser().getId());
 
         // BR-TICKET-010 + BR-TICKET-011: solo PAID
         if (ticket.getStatus() != TicketStatus.PAID) {
@@ -178,8 +180,7 @@ public class TicketServiceImpl implements TicketService {
     @Override
     @Transactional
     public TicketResponse markAsUsed(String ticketCode) {
-        // STAFF/ADMIN (controlado ademas en la cadena de filtros).
-        authorizationService.requirePrincipal();
+        authorizationService.requireStaffOrAdmin();
 
         Ticket ticket = ticketRepository.findByTicketCode(ticketCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + ticketCode));

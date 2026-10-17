@@ -31,25 +31,35 @@ Flujo:
 1. `POST /auth/login` con `identifier` (username o email) y `password` valida las credenciales
    contra la tabla `user_credentials` (hash BCrypt) y devuelve `accessToken`, `tokenType` y
    `expiresIn`.
-2. El token incluye `iss`, `sub` (id interno del usuario), `iat`, `exp`, `jti` y el claim `roles`.
-3. `JwtAuthenticationFilter` valida la firma, emisor y expiracion, recarga el usuario por id y
-   solo autentica si la cuenta sigue activa.
+2. El token HS256 incluye `iss`, `sub` (id interno del usuario), `iat`, `exp` y `jti`.
+3. `JwtAuthenticationFilter` valida firma, algoritmo, emisor y claims obligatorios, recarga el usuario
+   y sus roles actuales por id, y solo autentica si la cuenta sigue activa.
 
 Matriz de autorizacion:
 
 | Endpoint | Acceso |
 | --- | --- |
 | `POST /auth/login`, `POST /users` | Publico |
-| `GET /events/published`, `GET /events/by-artist`, `GET /events/{code}`, `GET /artists/**`, `GET /venues/**` | Publico |
+| `GET /events/published`, `GET /events/by-artist`, `GET /events/{code}` (solo publicados), `GET /artists/{id}`, `GET /artists/by-stage-name`, `GET /artists/active`, `GET /venues/{code}`, `GET /venues/active` | Publico |
 | `POST /events`, `PATCH /events/{code}/publish`, `POST /events/{code}/artists/{artistId}` | ADMIN |
 | `GET /events/{code}/tickets/paid`, `PATCH /tickets/{code}/use` | STAFF o ADMIN |
-| `GET /auth/me`, `POST /tickets`, `GET /tickets/{code}`, `GET /tickets/by-user`, `PATCH /tickets/{code}/cancel`, `GET /users/by-email`, `GET /users/by-username` | Autenticado |
+| `POST /tickets` | USER; solo compra para su propia identidad |
+| `GET /tickets/{code}` | Propietario, STAFF o ADMIN |
+| `GET /tickets/by-user`, `PATCH /tickets/{code}/cancel` | Propietario; ADMIN puede operar sobre terceros |
+| `GET /users/by-email`, `GET /users/by-username` | Propio usuario o ADMIN |
+| `GET /auth/me` | Autenticado |
 
-Ademas de los roles, se aplica control de propiedad (anti-IDOR) en la capa de servicio mediante
-`AuthorizationService`: cada usuario solo opera sobre sus propios recursos (comprar, ver y cancelar
-sus tickets, consultar su propio usuario); los borradores de evento se ocultan a quien no es
-`STAFF`/`ADMIN`. Las respuestas `401` (no autenticado) y `403` (sin permiso) usan el mismo
+Ademas de los roles, `AuthorizationService` compara la propiedad con el ID persistente del principal,
+no con IDs ni correos suministrados como prueba de identidad por el cliente. El registro exige una
+contraseña de al menos 12 caracteres y limita el valor codificado en UTF-8 a 72 bytes para BCrypt.
+Los borradores de evento se ocultan a quien no es `STAFF`/`ADMIN`. En este MVP, `STAFF` tiene acceso
+global a las operaciones de tickets porque el dominio no asigna personal a eventos; producción debe
+restringirlo por evento. Las respuestas `401` (no autenticado) y `403` (sin permiso) usan el mismo
 `ErrorResponse`.
+
+Las rutas publicas son explicitas; otras rutas no listadas requieren autenticacion. No hay registro
+publico de roles privilegiados: `STAFF`/`ADMIN` deben provisionarse mediante un proceso
+administrativo controlado. Las pruebas de integracion usan secretos y usuarios ficticios.
 
 ## Tecnologias
 
@@ -163,7 +173,11 @@ Variables de entorno:
 - `PULSEPASS_JWT_SECRET_BASE64` (obligatoria): secreto Base64 de al menos 32 bytes. La aplicacion
   falla al arrancar si falta o es demasiado corto.
 - `PULSEPASS_JWT_ISSUER` (opcional, por defecto `pulsepass-api`).
+- `PULSEPASS_JWT_ACCESS_TOKEN_TTL` (opcional, ISO-8601 duration; por defecto `PT15M`).
 - `PULSEPASS_CORS_ALLOWED_ORIGINS` (opcional, por defecto `http://localhost:4200`).
 
-Ver `.env.example` para un ejemplo.
+Cada request recibe el encabezado `X-Request-ID` (se conserva solo si es válido) y ese mismo
+identificador se incluye en los logs de autenticación y denegación, nunca junto con passwords,
+hashes ni tokens.
 
+Ver `.env.example` para un ejemplo.

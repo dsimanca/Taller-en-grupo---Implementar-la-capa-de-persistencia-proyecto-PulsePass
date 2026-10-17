@@ -1,6 +1,9 @@
 package com.pulsepass.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -17,18 +20,21 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.AuthenticationEntryPoint;
 
 @ExtendWith(MockitoExtension.class)
 class JwtAuthenticationFilterTest {
 
     @Mock private JwtService jwtService;
     @Mock private CustomUserDetailsService userDetailsService;
+    @Mock private AuthenticationEntryPoint authenticationEntryPoint;
     private JwtAuthenticationFilter filter;
 
     @BeforeEach
     void setUp() {
-        filter = new JwtAuthenticationFilter(jwtService, userDetailsService);
+        filter = new JwtAuthenticationFilter(jwtService, userDetailsService, authenticationEntryPoint);
     }
 
     @AfterEach
@@ -53,7 +59,7 @@ class JwtAuthenticationFilterTest {
         run(request);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
-        verifyNoInteractions(jwtService, userDetailsService);
+        verifyNoInteractions(jwtService, userDetailsService, authenticationEntryPoint);
     }
 
     @Test
@@ -80,6 +86,7 @@ class JwtAuthenticationFilterTest {
         run(request);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(authenticationEntryPoint).commence(eq(request), any(), any(BadCredentialsException.class));
     }
 
     @Test
@@ -91,5 +98,19 @@ class JwtAuthenticationFilterTest {
         run(request);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(authenticationEntryPoint).commence(eq(request), any(), any(BadCredentialsException.class));
+    }
+
+    @Test
+    void doesNotAuthenticateWhenAuthorizationHeaderIsDuplicated() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer good-token");
+        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer other-token");
+
+        run(request);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verifyNoInteractions(jwtService, userDetailsService);
+        verify(authenticationEntryPoint).commence(eq(request), any(), any(BadCredentialsException.class));
     }
 }

@@ -1,6 +1,8 @@
 package com.pulsepass.service;
 
+import com.pulsepass.domain.enums.Role;
 import com.pulsepass.security.SecurityPrincipal;
+import java.util.Objects;
 import java.util.Optional;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
@@ -28,16 +30,21 @@ public class AuthorizationService {
 
     public boolean isAdmin() {
         return currentPrincipal()
-                .map(principal -> principal.getRoles().contains(com.pulsepass.domain.enums.Role.ADMIN))
+                .map(principal -> principal.getRoles().contains(Role.ADMIN))
                 .orElse(false);
     }
 
     public boolean isStaffOrAdmin() {
         return currentPrincipal()
                 .map(principal -> principal.getRoles().stream()
-                        .anyMatch(role -> role == com.pulsepass.domain.enums.Role.STAFF
-                                || role == com.pulsepass.domain.enums.Role.ADMIN))
+                        .anyMatch(role -> role == Role.STAFF || role == Role.ADMIN))
                 .orElse(false);
+    }
+
+    public void requireStaffOrAdmin() {
+        if (!isStaffOrAdmin()) {
+            throw new AccessDeniedException("No tiene permisos para realizar esta operacion");
+        }
     }
 
     /**
@@ -45,7 +52,8 @@ public class AuthorizationService {
      */
     public void requireSelfOrAdmin(Long ownerUserId) {
         SecurityPrincipal principal = requirePrincipal();
-        if (principal.getId().equals(ownerUserId)) {
+        if (ownerUserId != null && principal.getRoles().contains(Role.USER)
+                && Objects.equals(principal.getId(), ownerUserId)) {
             return;
         }
         if (isAdmin()) {
@@ -54,39 +62,18 @@ public class AuthorizationService {
         throw new AccessDeniedException("No tiene permisos para acceder a este recurso");
     }
 
-    /**
-     * Permite continuar si el usuario autenticado es el propietario indicado por email (case-insensitive) o un ADMIN.
-     */
-    public void requireSelfByEmailOrAdmin(String ownerEmail) {
+    public void requirePurchaseForSelf(Long ownerUserId) {
         SecurityPrincipal principal = requirePrincipal();
-        if (principal.getEmail() != null && ownerEmail != null
-                && principal.getEmail().equalsIgnoreCase(ownerEmail)) {
-            return;
-        }
-        if (isAdmin()) {
-            return;
-        }
-        throw new AccessDeniedException("No tiene permisos para acceder a este recurso");
-    }
-
-    /**
-     * La compra solo puede hacerse a nombre de la identidad autenticada.
-     */
-    public void requirePurchaseForSelf(String userEmail) {
-        SecurityPrincipal principal = requirePrincipal();
-        if (principal.getEmail() == null || userEmail == null
-                || !principal.getEmail().equalsIgnoreCase(userEmail)) {
+        if (!principal.getRoles().contains(Role.USER)
+                || ownerUserId == null
+                || !Objects.equals(principal.getId(), ownerUserId)) {
             throw new AccessDeniedException("Solo puede operar sobre sus propios recursos");
         }
     }
 
-    /**
-     * Acceso a un ticket: propietario o STAFF/ADMIN en operacion autorizada.
-     */
-    public void requireTicketOwnerOrPrivileged(String ownerEmail) {
+    public void requireTicketOwnerOrPrivileged(Long ownerUserId) {
         SecurityPrincipal principal = requirePrincipal();
-        if (principal.getEmail() != null && ownerEmail != null
-                && principal.getEmail().equalsIgnoreCase(ownerEmail)) {
+        if (ownerUserId != null && Objects.equals(principal.getId(), ownerUserId)) {
             return;
         }
         if (isStaffOrAdmin()) {
@@ -95,10 +82,15 @@ public class AuthorizationService {
         throw new AccessDeniedException("No tiene permisos para acceder a este recurso");
     }
 
-    /**
-     * Cancelacion de ticket: propietario o ADMIN expresamente autorizado.
-     */
-    public void requireTicketOwnerOrAdmin(String ownerEmail) {
-        requireSelfByEmailOrAdmin(ownerEmail);
+    public void requireTicketOwnerOrAdmin(Long ownerUserId) {
+        SecurityPrincipal principal = requirePrincipal();
+        if (ownerUserId != null && principal.getRoles().contains(Role.USER)
+                && Objects.equals(principal.getId(), ownerUserId)) {
+            return;
+        }
+        if (isAdmin()) {
+            return;
+        }
+        throw new AccessDeniedException("No tiene permisos para acceder a este recurso");
     }
 }

@@ -5,13 +5,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.pulsepass.domain.enums.Role;
 import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.UnsupportedJwtException;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
 import java.time.Duration;
+import java.util.Base64;
+import java.util.Date;
 import java.util.List;
+import java.util.UUID;
+import javax.crypto.SecretKey;
 import org.junit.jupiter.api.Test;
 
 class JwtServiceTest {
 
     private static final String SECRET = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
+    private static final SecretKey SIGNING_KEY = Keys.hmacShaKeyFor(Decoders.BASE64.decode(SECRET));
 
     private JwtService service() {
         return new JwtService(new JwtProperties("pulsepass-api", SECRET, Duration.ofMinutes(15)));
@@ -38,11 +47,16 @@ class JwtServiceTest {
 
     @Test
     void rejectsAnExpiredToken() {
-        JwtService expired = new JwtService(
-                new JwtProperties("pulsepass-api", SECRET, Duration.ofSeconds(-60)));
-        String token = expired.generateToken(principal());
+        String token = Jwts.builder()
+                .subject("7")
+                .issuer("pulsepass-api")
+                .issuedAt(new Date(System.currentTimeMillis() - 120_000))
+                .expiration(new Date(System.currentTimeMillis() - 60_000))
+                .id(UUID.randomUUID().toString())
+                .signWith(SIGNING_KEY, Jwts.SIG.HS256)
+                .compact();
 
-        assertThatThrownBy(() -> expired.extractUserId(token)).isInstanceOf(JwtException.class);
+        assertThatThrownBy(() -> service().extractUserId(token)).isInstanceOf(JwtException.class);
     }
 
     @Test
@@ -77,6 +91,52 @@ class JwtServiceTest {
     }
 
     @Test
+    void rejectsTokensMissingRequiredClaims() {
+        JwtService jwtService = service();
+        String token = Jwts.builder()
+                .subject("7")
+                .issuer("pulsepass-api")
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 60_000))
+                .signWith(SIGNING_KEY, Jwts.SIG.HS256)
+                .compact();
+
+        assertThatThrownBy(() -> jwtService.extractUserId(token)).isInstanceOf(JwtException.class);
+    }
+
+    @Test
+    void rejectsAnUnexpectedSigningAlgorithm() {
+        String longSecret = Base64.getEncoder().encodeToString(new byte[48]);
+        JwtService verifier = new JwtService(
+                new JwtProperties("pulsepass-api", longSecret, Duration.ofMinutes(15)));
+        SecretKey unexpectedAlgorithmKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(longSecret));
+        String token = Jwts.builder()
+                .subject("7")
+                .issuer("pulsepass-api")
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 60_000))
+                .id(UUID.randomUUID().toString())
+                .signWith(unexpectedAlgorithmKey, Jwts.SIG.HS384)
+                .compact();
+
+        assertThatThrownBy(() -> verifier.extractUserId(token)).isInstanceOf(UnsupportedJwtException.class);
+    }
+
+    @Test
+    void rejectsANonNumericSubject() {
+        String token = Jwts.builder()
+                .subject("andrea")
+                .issuer("pulsepass-api")
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 60_000))
+                .id(UUID.randomUUID().toString())
+                .signWith(SIGNING_KEY, Jwts.SIG.HS256)
+                .compact();
+
+        assertThatThrownBy(() -> service().extractUserId(token)).isInstanceOf(JwtException.class);
+    }
+
+    @Test
     void failsFastWhenTheSecretIsMissing() {
         assertThatThrownBy(() -> new JwtService(
                 new JwtProperties("pulsepass-api", "", Duration.ofMinutes(15))))
@@ -88,5 +148,11 @@ class JwtServiceTest {
         assertThatThrownBy(() -> new JwtService(
                 new JwtProperties("pulsepass-api", "c2hvcnQ=", Duration.ofMinutes(15))))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void rejectsANonPositiveTokenTtl() {
+        assertThatThrownBy(() -> new JwtProperties("pulsepass-api", SECRET, Duration.ZERO))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

@@ -61,7 +61,8 @@ public class SecurityConfig {
                 .filter(origin -> !origin.isEmpty())
                 .toList());
         configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", RequestIdFilter.HEADER_NAME));
+        configuration.setExposedHeaders(List.of(RequestIdFilter.HEADER_NAME));
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
@@ -91,12 +92,16 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,
                                 "/api/events/published",
                                 "/api/events/by-artist",
-                                "/api/artists/**",
-                                "/api/venues/**").permitAll()
+                                "/api/artists/active",
+                                "/api/artists/by-stage-name",
+                                "/api/artists/*",
+                                "/api/venues/active",
+                                "/api/venues/*").permitAll()
                         // Administracion
                         .requestMatchers(HttpMethod.POST, "/api/events").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/events/*/publish").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/events/*/artists/*").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/tickets").hasRole("USER")
                         // Operacion
                         .requestMatchers(HttpMethod.PATCH, "/api/tickets/*/use")
                         .hasAnyRole("STAFF", "ADMIN")
