@@ -123,6 +123,17 @@ class SecurityAuthorizationMatrixTest {
     }
 
     @Test
+    void artistSearchIsPublic() throws Exception {
+        mockMvc.perform(get("/api/artists/by-stage-name").param("stageName", "Solar Beat"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void activeArtistsArePublic() throws Exception {
+        mockMvc.perform(get("/api/artists/active")).andExpect(status().isOk());
+    }
+
+    @Test
     void nestedArtistRoutesAreNotAccidentallyPublic() throws Exception {
         mockMvc.perform(get("/api/artists/1/private")).andExpect(status().isUnauthorized());
     }
@@ -142,6 +153,18 @@ class SecurityAuthorizationMatrixTest {
     @Test
     void anonymousCannotCreateEvent() throws Exception {
         mockMvc.perform(post("/api/events").contentType(APPLICATION_JSON).content(EVENT_JSON))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void anonymousCannotPublishEvent() throws Exception {
+        mockMvc.perform(patch("/api/events/CMF-2026/publish"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void anonymousCannotAddArtistToEvent() throws Exception {
+        mockMvc.perform(post("/api/events/CMF-2026/artists/1"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -167,6 +190,25 @@ class SecurityAuthorizationMatrixTest {
     }
 
     @Test
+    @WithMockUser(roles = "USER")
+    void regularUserCannotPublishEventAndGetsStandardForbiddenResponse() throws Exception {
+        mockMvc.perform(patch("/api/events/CMF-2026/publish"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.error").value("Forbidden"))
+                .andExpect(jsonPath("$.details").isEmpty());
+        verify(eventService, never()).publish(anyString());
+    }
+
+    @Test
+    @WithMockUser(roles = "STAFF")
+    void staffCannotAddArtistToEvent() throws Exception {
+        mockMvc.perform(post("/api/events/CMF-2026/artists/1"))
+                .andExpect(status().isForbidden());
+        verify(eventService, never()).addArtist(anyString(), any());
+    }
+
+    @Test
     @WithMockUser(roles = "ADMIN")
     void adminCanPublishEvent() throws Exception {
         mockMvc.perform(patch("/api/events/CMF-2026/publish")).andExpect(status().isOk());
@@ -187,6 +229,12 @@ class SecurityAuthorizationMatrixTest {
     }
 
     @Test
+    void anonymousCannotUseTicket() throws Exception {
+        mockMvc.perform(patch("/api/tickets/TCK-1/use"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     @WithMockUser(roles = "USER")
     void regularUserCannotListPaidTickets() throws Exception {
         mockMvc.perform(get("/api/events/CMF-2026/tickets/paid"))
@@ -203,6 +251,7 @@ class SecurityAuthorizationMatrixTest {
     @WithMockUser(roles = "USER")
     void regularUserCannotMarkTicketAsUsed() throws Exception {
         mockMvc.perform(patch("/api/tickets/TCK-1/use")).andExpect(status().isForbidden());
+        verify(ticketService, never()).markAsUsed(anyString());
     }
 
     @Test
@@ -253,6 +302,24 @@ class SecurityAuthorizationMatrixTest {
     @Test
     void anonymousCannotFindUserByEmail() throws Exception {
         mockMvc.perform(get("/api/users/by-email").param("email", "andrea@email.com"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void anonymousCannotFindUserByUsername() throws Exception {
+        mockMvc.perform(get("/api/users/by-username").param("username", "andrea"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void anonymousCannotListTicketsByUser() throws Exception {
+        mockMvc.perform(get("/api/tickets/by-user").param("email", "andrea@email.com"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void anonymousCannotCancelTicket() throws Exception {
+        mockMvc.perform(patch("/api/tickets/TCK-1/cancel"))
                 .andExpect(status().isUnauthorized());
     }
 

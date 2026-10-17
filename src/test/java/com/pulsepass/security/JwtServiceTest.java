@@ -151,6 +151,13 @@ class JwtServiceTest {
     }
 
     @Test
+    void failsFastWhenTheSecretIsNotBase64() {
+        assertThatThrownBy(() -> new JwtService(
+                new JwtProperties("pulsepass-api", "not-base64!", Duration.ofMinutes(15))))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void rejectsANonPositiveTokenTtl() {
         assertThatThrownBy(() -> new JwtProperties("pulsepass-api", SECRET, Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);

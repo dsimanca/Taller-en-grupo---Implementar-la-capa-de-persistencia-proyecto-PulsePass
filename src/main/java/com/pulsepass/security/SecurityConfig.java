@@ -53,6 +53,14 @@ public class SecurityConfig {
     }
 
     @Bean
+    public JwtAuthenticationFilter jwtAuthenticationFilter(
+            JwtService jwtService,
+            CustomUserDetailsService userDetailsService,
+            AuthenticationEntryPoint authEntryPoint) {
+        return new JwtAuthenticationFilter(jwtService, userDetailsService, authEntryPoint);
+    }
+
+    @Bean
     public CorsConfigurationSource corsConfigurationSource(
             @Value("${pulsepass.security.cors.allowed-origins:http://localhost:4200}") String allowedOrigins) {
         CorsConfiguration configuration = new CorsConfiguration();

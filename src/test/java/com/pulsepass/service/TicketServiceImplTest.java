@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.lenient;
@@ -71,6 +72,20 @@ class TicketServiceImplTest {
         when(userRepository.findByEmailIgnoreCase("andrea@email.com")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.purchase(request())).isInstanceOf(ResourceNotFoundException.class);
+        verify(ticketRepository, never()).save(any(Ticket.class));
+    }
+
+    @Test
+    void looksUpPersistentOwnerBeforeAuthorizingTicketPurchase() {
+        User user = user(true, LocalDate.now().minusYears(25));
+        user.setId(31L);
+        when(userRepository.findByEmailIgnoreCase("andrea@email.com")).thenReturn(Optional.of(user));
+        doThrow(new AccessDeniedException("Forbidden"))
+                .when(authorizationService).requirePurchaseForSelf(31L);
+
+        assertThatThrownBy(() -> service.purchase(request())).isInstanceOf(AccessDeniedException.class);
+
+        verify(authorizationService).requirePurchaseForSelf(31L);
         verify(ticketRepository, never()).save(any(Ticket.class));
     }
 
@@ -159,6 +174,54 @@ class TicketServiceImplTest {
 
         assertThat(ticket.getStatus()).isEqualTo(TicketStatus.CANCELLED);
         verify(authorizationService).requireTicketOwnerOrAdmin(7L);
+    }
+
+    @Test
+    void checksTicketOwnershipByUserIdWhenReadingATicket() {
+        Ticket ticket = ticket(TicketStatus.PAID);
+        ticket.getUser().setId(31L);
+        when(ticketRepository.findByTicketCode("TCK-1")).thenReturn(Optional.of(ticket));
+
+        service.findByCode("TCK-1");
+
+        verify(authorizationService).requireTicketOwnerOrPrivileged(31L);
+    }
+
+    @Test
+    void authorizesTicketListByResolvedPersistentUserId() {
+        User user = new User();
+        user.setId(31L);
+        when(userRepository.findByEmailIgnoreCase("andrea@email.com")).thenReturn(Optional.of(user));
+        doThrow(new AccessDeniedException("Forbidden"))
+                .when(authorizationService).requireSelfOrAdmin(31L);
+
+        assertThatThrownBy(() -> service.findByUserEmail("andrea@email.com"))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verify(ticketRepository, never()).findByUserEmailIgnoreCaseOrderByPurchaseDateDesc(anyString());
+    }
+
+    @Test
+    void enforcesStaffOrAdminForPaidTicketListing() {
+        doThrow(new AccessDeniedException("Forbidden"))
+                .when(authorizationService).requireStaffOrAdmin();
+
+        assertThatThrownBy(() -> service.findPaidTicketsByEvent("EV-1"))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verify(ticketRepository, never()).findPaidByEventCode(anyString());
+    }
+
+    @Test
+    void enforcesStaffOrAdminBeforeMarkingTicketAsUsed() {
+        doThrow(new AccessDeniedException("Forbidden"))
+                .when(authorizationService).requireStaffOrAdmin();
+
+        assertThatThrownBy(() -> service.markAsUsed("TCK-1"))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verify(ticketRepository, never()).findByTicketCode(anyString());
+        verify(ticketRepository, never()).save(any(Ticket.class));
     }
 
     @Test

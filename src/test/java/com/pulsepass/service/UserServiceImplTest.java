@@ -108,6 +108,19 @@ class UserServiceImplTest {
                 .isInstanceOf(AccessDeniedException.class);
     }
 
+    @Test
+    void authorizesUsernameLookupByPersistentId() {
+        User user = new User();
+        user.setId(42L);
+        when(userRepository.findByUsername("andrea")).thenReturn(Optional.of(user));
+
+        doThrow(new AccessDeniedException("No tiene permisos"))
+                .when(authorizationService).requireSelfOrAdmin(42L);
+
+        assertThatThrownBy(() -> service.findByUsername("andrea"))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
     private RegisterUserRequest request(LocalDate birthDate) {
         return new RegisterUserRequest("andrea", "andrea@email.com", "UnaFraseSeguraLarga2026!",
                 "Andrea", "Perez", "300", "Bogota", birthDate);

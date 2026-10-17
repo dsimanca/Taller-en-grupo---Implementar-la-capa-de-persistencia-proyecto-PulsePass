@@ -68,6 +68,14 @@ class AuthorizationServiceTest {
     }
 
     @Test
+    void doesNotAllowStaffToReadSomeonesUserData() {
+        authenticate("staff@email.com", Role.STAFF);
+
+        assertThatThrownBy(() -> service.requireSelfOrAdmin(7L))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
     void authorizesTheOwnerByPersistentIdInsteadOfEmail() {
         authenticate("andrea@email.com", Role.USER);
 
@@ -116,6 +124,22 @@ class AuthorizationServiceTest {
     }
 
     @Test
+    void allowsTicketOwnerToReadTheirTicketByPersistentId() {
+        authenticate("andrea@email.com", Role.USER);
+
+        assertThatCode(() -> service.requireTicketOwnerOrPrivileged(7L))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void rejectsAnotherUserReadingATicket() {
+        authenticate("andrea@email.com", Role.USER);
+
+        assertThatThrownBy(() -> service.requireTicketOwnerOrPrivileged(99L))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
     void doesNotAllowStaffToCancelSomeoneElsesTicket() {
         authenticate("staff@email.com", Role.STAFF);
 
@@ -129,6 +153,13 @@ class AuthorizationServiceTest {
 
         assertThatThrownBy(() -> service.requireTicketOwnerOrAdmin(7L))
                 .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void allowsAUserToCancelTheirOwnTicket() {
+        authenticate("andrea@email.com", Role.USER);
+
+        assertThatCode(() -> service.requireTicketOwnerOrAdmin(7L)).doesNotThrowAnyException();
     }
 
     @Test

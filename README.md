@@ -60,6 +60,9 @@ restringirlo por evento. Las respuestas `401` (no autenticado) y `403` (sin perm
 Las rutas publicas son explicitas; otras rutas no listadas requieren autenticacion. No hay registro
 publico de roles privilegiados: `STAFF`/`ADMIN` deben provisionarse mediante un proceso
 administrativo controlado. Las pruebas de integracion usan secretos y usuarios ficticios.
+En despliegues reales, el ingress o proxy de confianza debe exigir HTTPS; el access token es de vida
+corta y no hay revocacion inmediata/denylist en este MVP, por lo que cerrar sesion en el cliente no
+invalida tokens emitidos antes de su expiracion.
 
 ## Tecnologias
 
@@ -163,13 +166,16 @@ pulsepass:
     jwt:
       issuer: pulsepass-api
       secret-base64: ${PULSEPASS_JWT_SECRET_BASE64}
-      access-token-ttl: PT15M
+      access-token-ttl: ${PULSEPASS_JWT_ACCESS_TOKEN_TTL:PT15M}
   cors:
     allowed-origins: ${PULSEPASS_CORS_ALLOWED_ORIGINS:http://localhost:4200}
 ```
 
 Variables de entorno:
 
+- `PULSEPASS_DB_PASSWORD` (obligatoria): contrasena de PostgreSQL; no guardar valores reales en
+  archivos versionados.
+- `PULSEPASS_DB_URL` y `PULSEPASS_DB_USERNAME` (opcionales para desarrollo local).
 - `PULSEPASS_JWT_SECRET_BASE64` (obligatoria): secreto Base64 de al menos 32 bytes. La aplicacion
   falla al arrancar si falta o es demasiado corto.
 - `PULSEPASS_JWT_ISSUER` (opcional, por defecto `pulsepass-api`).
