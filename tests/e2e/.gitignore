@@ -1,0 +1,6 @@
+# Secretos y exportaciones locales de pruebas E2E — nunca versionar
+.env
+*.local.json
+secrets/
+exported/
+*-secrets.*
