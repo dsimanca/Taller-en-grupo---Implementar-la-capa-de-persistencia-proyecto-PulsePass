@@ -187,3 +187,92 @@ identificador se incluye en los logs de autenticación y denegación, nunca junt
 hashes ni tokens.
 
 Ver `.env.example` para un ejemplo.
+
+## Cómo ejecutar todo el proyecto
+
+### Requisitos previos
+- Java 21 y Maven (incluido wrapper `mvnw.cmd` / `mvnw`)
+- PostgreSQL en ejecución (por defecto `localhost:5432`, base `pulsepass`, usuario `pulsepass`)
+- Node.js 22.22+ y npm
+
+### 1. Base de datos (primera vez)
+Crea la base y el usuario en PostgreSQL (ajusta la contraseña). Ejemplo con `psql`:
+
+```sql
+CREATE ROLE pulsepass WITH LOGIN PASSWORD 'tu_clave_db';
+CREATE DATABASE pulsepass OWNER pulsepass;
+```
+
+Flyway crea/migra las tablas al iniciar el backend. La migración `V2` solo siembra 5 artistas (no hay sedes, eventos ni usuarios).
+
+### 2. Backend (API REST, puerto 8080)
+Ejecutar en una terminal desde la **raíz del proyecto** (`pulsepassFinal`). Son obligatorias `PULSEPASS_DB_PASSWORD` y `PULSEPASS_JWT_SECRET_BASE64` (Base64 estándar, >= 32 bytes, sin `-` ni `_`). Las variables `$env:` / `export` valen para la ventana actual.
+
+**PowerShell (Windows):**
+```powershell
+$env:PULSEPASS_DB_URL = "jdbc:postgresql://localhost:5432/pulsepass"
+$env:PULSEPASS_DB_USERNAME = "pulsepass"
+$env:PULSEPASS_DB_PASSWORD = "tu_clave_db"
+
+$bytes = New-Object byte[] 32
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($bytes); $rng.Dispose()
+$env:PULSEPASS_JWT_SECRET_BASE64 = [Convert]::ToBase64String($bytes)
+
+.\mvnw.cmd spring-boot:run
+```
+
+**Bash / Linux / macOS / Git Bash:**
+```bash
+export PULSEPASS_DB_URL="jdbc:postgresql://localhost:5432/pulsepass"
+export PULSEPASS_DB_USERNAME="pulsepass"
+export PULSEPASS_DB_PASSWORD="tu_clave_db"
+export PULSEPASS_JWT_SECRET_BASE64="$(openssl rand -base64 32)"
+
+./mvnw spring-boot:run
+```
+
+El servidor queda en `http://localhost:8080`. Deja esta terminal abierta.
+
+### 3. Frontend (Vite, puerto 5173)
+En **otra terminal**:
+
+**PowerShell (Windows):**
+```powershell
+cd pulsepass-web
+Copy-Item .env.example .env   # si no existe (VITE_API_BASE_URL=/api)
+npm.cmd install               # solo la primera vez
+npm.cmd run dev
+```
+
+**Bash / Linux / macOS / Git Bash:**
+```bash
+cd pulsepass-web
+cp .env.example .env          # si no existe (VITE_API_BASE_URL=/api)
+npm install                   # solo la primera vez
+npm run dev
+```
+
+Abre la URL que muestre Vite (normalmente `http://localhost:5173`). El proxy de desarrollo reenvía `/api` al backend.
+
+### 4. Verificación rápida
+- Backend: `http://localhost:8080/api/artists/active` (debe listar los 5 artistas sembrados) y `http://localhost:8080/api/events/published`.
+- Frontend: `http://localhost:5173` con el backend en ejecución.
+
+### 5. Datos iniciales (opcional)
+- Solo hay artistas sembrados. La cartelera muestra eventos con estado `PUBLISHED`.
+- Para crear eventos necesitas una sede en BD, por ejemplo:
+  ```sql
+  INSERT INTO venues (code, name, city, address, capacity, active)
+  VALUES ('VEN-SMR-01', 'Marina Convention Center', 'Santa Marta', 'Centro', 5000, true);
+  ```
+- Regístrate en `/registro` (rol `USER`). Para administrar eventos, asigna rol `ADMIN` a tu usuario en BD:
+  ```sql
+  -- consulta el id: SELECT id, username FROM users;
+  INSERT INTO user_roles (user_id, role) VALUES (<ID_USUARIO>, 'ADMIN');
+  ```
+  Luego inicia sesión y usa `/admin/eventos` para crear y publicar eventos.
+
+### 6. Pruebas
+- Backend (raíz): `.\mvnw.cmd test` (Windows) / `./mvnw test` (bash).
+- Frontend (`pulsepass-web/`): `npm.cmd test` (Windows) / `npm test` (bash).
